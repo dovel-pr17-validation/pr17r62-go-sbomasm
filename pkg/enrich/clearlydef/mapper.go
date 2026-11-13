@@ -1,0 +1,137 @@
+// Copyright 2025 Interlynk.io
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package clearlydef
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	cydx "github.com/CycloneDX/cyclonedx-go"
+	spdx3 "github.com/interlynk-io/spdx-zen/model/v3.0.1"
+	"github.com/guacsec/sw-id-core/coordinates"
+	"github.com/interlynk-io/sbomasm/v2/pkg/logger"
+	"github.com/package-url/packageurl-go"
+	"github.com/spdx/tools-golang/spdx"
+)
+
+var (
+	// ErrInvalidPURL marks PURLs that fail to parse.
+	ErrInvalidPURL = errors.New("invalid purl")
+
+	// ErrNoClearlyDefinedData marks PURLs that parse fine but cannot be
+	// mapped to a ClearlyDefined coordinate coz not supported or no data.
+	ErrNoClearlyDefinedData = errors.New("no clearlydefined data for purl")
+)
+
+type Coordinate struct {
+	Type      string
+	Provider  string
+	Namespace string
+	Name      string
+	Revision  string
+}
+
+// Mapper maps component into coordinates for clearlydefined
+func Mapper(ctx context.Context, components []interface{}) map[interface{}]coordinates.Coordinate {
+	log := logger.FromContext(ctx)
+	log.Debug("mapping components to clearlydefined coordinates")
+
+	componentsToCoordinateMappings := make(map[interface{}]coordinates.Coordinate)
+	missingPurl := 0
+	invalidPurl := 0
+	validPurl := 0
+	validPurlWithNoData := 0
+
+	for _, comp := range components {
+		var coord *coordinates.Coordinate
+		var err error
+		var purls []string
+
+		switch c := comp.(type) {
+		case *spdx.Package:
+			for _, ref := range c.PackageExternalReferences {
+				if ref.RefType == "purl" {
+					purls = append(purls, ref.Locator)
+				}
+			}
+
+		case *spdx3.Package:
+			for _, ei := range c.ExternalIdentifier {
+				if ei.ExternalIdentifierType == spdx3.ExternalIdentifierTypePackageUrl {
+					purls = append(purls, ei.Identifier)
+				}
+			}
+
+		case cydx.Component:
+			if c.PackageURL != "" {
+				purls = append(purls, c.PackageURL)
+			}
+		}
+
+		if len(purls) == 0 {
+			missingPurl++
+			log.Debugf("no PURL found for component %T", comp)
+			continue
+		}
+
+		coord, err = mapPURLToCoordinate(ctx, purls[0])
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrInvalidPURL):
+				invalidPurl++
+				log.Debugf("invalid PURL %q: %v", purls[0], err)
+
+			case errors.Is(err, ErrNoClearlyDefinedData):
+				validPurlWithNoData++
+				log.Debugf("no ClearlyDefined data for %q: %v", purls[0], err)
+
+			default:
+				validPurlWithNoData++
+				log.Debugf("failed to map %q: %v", purls[0], err)
+			}
+
+			continue
+		}
+
+		validPurl++
+		componentsToCoordinateMappings[comp] = *coord
+
+	}
+	log.Debugf("Missing PURLs: %d\t Invalid PURLs: %d\t Valid PURLs: %d\t Valid PURLs with no CD Data: %d\n", missingPurl, invalidPurl, validPurl, validPurlWithNoData)
+	log.Debugf("mapped %d components to coordinates", len(componentsToCoordinateMappings))
+
+	return componentsToCoordinateMappings
+}
+
+// mapPURLToCoordinate converts a PURL to a ClearlyDefined coordinate
+func mapPURLToCoordinate(ctx context.Context, purl string) (*coordinates.Coordinate, error) {
+	log := logger.FromContext(ctx)
+
+	pkgPURL, err := packageurl.FromString(purl)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %q: %v", ErrInvalidPURL, purl, err)
+	}
+
+	coordinate, err := coordinates.ConvertPurlToCoordinate(pkgPURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("%w: %q: %v", ErrNoClearlyDefinedData, purl, err)
+	}
+
+	log.Debugf("successfully mapped PURL %s to coordinate: %+v", purl, constructPathFromCoordinate(*coordinate))
+	return coordinate, nil
+}

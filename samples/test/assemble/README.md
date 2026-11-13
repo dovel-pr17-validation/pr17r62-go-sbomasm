@@ -1,0 +1,180 @@
+# Testing Editing Feature
+
+- This is for testing of assemble command. And below commands are the examples of the same.
+- Assembly supported 3 ways of assembling SBOMs:
+  - Flag merge
+  - Assembly Merge
+  - Hierarchical Merge
+
+- Flat Merge means:
+
+  - All input SBOM components, including their primary components, are merged into the components section of the final SBOM.
+  - Each input SBOM’s primary component becomes a direct dependency of the final SBOM.
+  - The remaining dependencies from the input SBOMs are preserved as-is in the dependencies section of the final SBOM.
+
+- Assembly Merge:
+  - All input SBOM primary components are added as sub-components under the final SBOM’s primary component.
+  - All input SBOM components are placed under the components section of the final SBOM.
+  - The dependencies from the input SBOMs remain unchanged in the dependencies section of the final SBOM.
+
+- Hierarchical Merge
+  - The components section of the final SBOM contains one entry for each input SBOM.
+  - Each input SBOM’s components are nested under the sub-components of its respective primary component.
+  - Each input SBOM’s primary component becomes a direct dependency of the final SBOM.
+  - The dependencies from the input SBOMs are preserved as-is in the dependencies section of the final SBOM.
+
+## SBOMs Example
+
+This example uses two SBOMs, each containing 2–3 components. A small number of components is chosen to make the merging strategies easier to visualize.
+
+SBOM FIles:
+
+- `lite-sbom1-cdx.json`
+- `lite-sbom2-cdx.json`
+
+1. `lite-sbom1-cdx.json` has:
+
+- Total 2 components:
+  - `github.com/fluxcd/pkg/oci`
+  - `github.com/Azure/azure-sdk-for-go/sdk/azcore`
+- Primary Component as `github.com/kyverno/kyverno`
+- The dependencies of `github.com/kyverno/kyverno`
+  - `github.com/fluxcd/pkg/oci`
+- Similarly the  dependencies of `github.com/fluxcd/pkg/oci`
+  - `github.com/Azure/azure-sdk-for-go/sdk/azcore`
+
+2. `lite-sbom2-cdx.json` has:
+
+- Total 3 components:
+  - `github.com/felixge/httpsnoop`
+  - `github.com/sigstore/fulcio`
+  - `github.com/sigstore/rekor`
+- Primary component as `github.com/sigstore/cosign`
+- The dependenies of `github.com/sigstore/cosign`
+  - `github.com/sigstore/fulcio`
+  - `github.com/sigstore/rekor`
+- Similalrly, the dependencies of:
+  - `github.com/sigstore/fulcio` is `github.com/felixge/httpsnoop`
+
+## 1. Flag Merge
+
+```bash
+sbomasm assemble -n "final-in-complete" -t "aplication" -v "v1.0.0" --flatMerge samples/test/assemble/lite-sbom1-cdx.json samples/test/assemble/lite-sbom2-cdx.json -o flatmerge-lite-sbom.cdx.json
+```
+
+## 2. Assemble Merge
+
+```bash
+sbomasm assemble -n "final-in-complete" -t "application" -v "v1.0.0" --assemblyMerge samples/test/assemble/lite-sbom1-cdx.json samples/test/assemble/lite-sbom2-cdx.json -o assemblemerge-lite-sbom.cdx.json
+```
+
+## 3. Hierarchical Merge (Default)
+
+```bash
+sbomasm assemble -n "final-in-complete" -t "application" -v "v1.0.0" --hierMerge samples/test/assemble/lite-sbom1-cdx.json samples/test/assemble/lite-sbom2-cdx.json -o hiermerge-lite-sbom.cdx.json
+```
+
+or
+
+```bash
+sbomasm assemble -n "final-in-complete" -t "application" -v "v1.0.0" samples/test/assemble/lite-sbom1-cdx.json samples/test/assemble/lite-sbom2-cdx.json -o hiermerge-lite-sbom.cdx.json
+```
+
+## 4. Assembly Merge with Primary
+
+Merge SBOMs into an existing primary SBOM without creating a new synthetic root. The primary SBOM's primary becomes the document root, and secondary SBOMs' primaries become sub-components:
+
+```bash
+sbomasm assemble --assemblyMerge \
+  --primary samples/test/assemble/lite-sbom1-cdx.json \
+  samples/test/assemble/lite-sbom2-cdx.json \
+  -o assembly-with-primary.cdx.json
+```
+
+**Result:**
+
+- `lite-sbom1-cdx.json`'s primary (`github.com/kyverno/kyverno`) becomes the document root
+- `lite-sbom2-cdx.json`'s primary (`github.com/sigstore/cosign`) becomes a sub-component of the primary
+- All components from both SBOMs are in the flat `components` section
+- The primary now has dependencies on both its original components and the secondary primary
+
+## 5. Flat Merge with Primary
+
+Merge SBOMs while preserving an existing primary SBOM as the document root. Unlike assembly merge, this creates a flat structure where all components (including secondary primaries) are in the `components` section:
+
+```bash
+sbomasm assemble --flatMerge \
+  --primary samples/test/assemble/lite-sbom1-cdx.json \
+  samples/test/assemble/lite-sbom2-cdx.json \
+  -o flat-with-primary.cdx.json
+```
+
+**Result:**
+
+- `lite-sbom1-cdx.json`'s primary (`github.com/kyverno/kyverno`) becomes the document root
+- `lite-sbom2-cdx.json`'s primary (`github.com/sigstore/cosign`) is added to the `components` section
+- All components from both SBOMs are in the flat `components` section (no nesting)
+- Primary SBOM's serial number, metadata, and tools are preserved, sbomasm is appended in the tools.
+- The primary's dependencies include the secondary primary
+
+---
+
+## SPDX 3.0 Examples
+
+All merge strategies also work with SPDX 3.0 JSON-LD format.
+
+### Test Files
+
+These SPDX 3.0 JSON-LD files contain the same packages as the CDX versions above, structured in a flat `@graph` with `SpdxDocument` + `software_Package` elements + `Relationship` elements for dependencies.
+
+- `lite-sbom1.spdx3.json` — Primary SBOM with 3 packages (kyverno, oci, azcore)
+- `lite-sbom2.spdx3.json` — Secondary SBOM with 4 packages (cosign, httpsnoop, fulcio, rekor)
+
+### 1. Flat Merge (SPDX 3.0)
+
+```bash
+sbomasm assemble -n "foo" -v "v1.0.0" -t "library" \
+  --flatMerge \
+  samples/test/assemble/lite-sbom1.spdx3.json samples/test/assemble/lite-sbom2.spdx3.json \
+  -o flat-merge.spdx3.json
+```
+
+### 2. Assembly Merge (SPDX 3.0)
+
+```bash
+sbomasm assemble -n "foo" -v "v1.0.0" -t "library" \
+  --assemblyMerge \
+  samples/test/assemble/lite-sbom1.spdx3.json samples/test/assemble/lite-sbom2.spdx3.json \
+  -o assembly-merge.spdx3.json
+```
+
+### 3. Hierarchical Merge (SPDX 3.0)
+
+```bash
+sbomasm assemble -n "foo" -v "v1.0.0" -t "library" \
+  --hierMerge \
+  samples/test/assemble/lite-sbom1.spdx3.json samples/test/assemble/lite-sbom2.spdx3.json \
+  -o hier-merge.spdx3.json
+```
+
+### 4. Assembly Merge with Primary (SPDX 3.0)
+
+```bash
+sbomasm assemble --assemblyMerge \
+  --primary samples/test/assemble/lite-sbom1.spdx3.json \
+  samples/test/assemble/lite-sbom2.spdx3.json \
+  -o assembly-with-primary.spdx3.json
+```
+
+### 5. Flat Merge with Primary (SPDX 3.0)
+
+```bash
+sbomasm assemble --flatMerge \
+  --primary samples/test/assemble/lite-sbom1.spdx3.json \
+  samples/test/assemble/lite-sbom2.spdx3.json \
+  -o flat-with-primary.spdx3.json
+```
+
+### 6. Augment Merge (SPDX 3.0)
+
+See `samples/test/assemble/augment-merge-tests/README.md` for augment merge examples.

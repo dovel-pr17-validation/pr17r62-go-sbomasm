@@ -1,0 +1,453 @@
+// Copyright 2025 Interlynk.io
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package assemble
+
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/interlynk-io/sbomasm/v2/pkg/assemble/cdx"
+	"github.com/interlynk-io/sbomasm/v2/pkg/logger"
+	"github.com/samber/lo"
+	"gopkg.in/yaml.v2"
+)
+
+const (
+	DEFAULT_OUTPUT_SPEC         = "cyclonedx"
+	DEFAULT_OUTPUT_SPEC_VERSION = "1.7"
+	DEFAULT_OUTPUT_FILE_FORMAT  = "json"
+	DEFAULT_OUTPUT_LICENSE      = "CC0-1.0"
+)
+
+type author struct {
+	Name  string `yaml:"name"`
+	Email string `yaml:"email,omitempty"`
+	Phone string `yaml:"phone,omitempty"`
+}
+
+type license struct {
+	Id         string `yaml:"id"`
+	Expression string `yaml:"expression,omitempty"`
+}
+
+type supplier struct {
+	Name  string `yaml:"name"`
+	Email string `yaml:"email,omitempty"`
+}
+
+type checksum struct {
+	Algorithm string `yaml:"algorithm"`
+	Value     string `yaml:"value"`
+}
+
+type app struct {
+	Name           string     `yaml:"name"`
+	Version        string     `yaml:"version"`
+	Description    string     `yaml:"description,omitempty"`
+	Author         []author   `yaml:"author,omitempty"`
+	PrimaryPurpose string     `yaml:"primary_purpose,omitempty"`
+	Purl           string     `yaml:"purl,omitempty"`
+	CPE            string     `yaml:"cpe,omitempty"`
+	License        license    `yaml:"license,omitempty"`
+	Supplier       supplier   `yaml:"supplier,omitempty"`
+	Checksums      []checksum `yaml:"checksum,omitempty"`
+	Copyright      string     `yaml:"copyright,omitempty"`
+}
+
+type output struct {
+	Spec            string `yaml:"spec"`
+	SpecVersion     string `yaml:"spec_version"`
+	FileFormat      string `yaml:"file_format"`
+	file            string
+	Upload          bool
+	UploadProjectID uuid.UUID
+	Url             string
+	ApiKey          string
+}
+
+type input struct {
+	files []string
+}
+
+type assemble struct {
+	IncludeDependencyGraph     bool `yaml:"include_dependency_graph"`
+	IncludeComponents          bool `yaml:"include_components"`
+	includeDuplicateComponents bool
+	FlatMerge                  bool   `yaml:"flat_merge"`
+	HierarchicalMerge          bool   `yaml:"hierarchical_merge"`
+	AssemblyMerge              bool   `yaml:"assembly_merge"`
+	AugmentMerge               bool   `yaml:"augment_merge"`
+	PrimaryFile                string `yaml:"primary_file"`
+	MergeMode                  string `yaml:"merge_mode"` // if-missing-or-empty, overwrite
+	DocLicense                 string `yaml:"doc_license"`
+
+	// Derived fields (not set via YAML)
+	IsAssemblyMergeWithPrimary bool // Set when --assemblyMerge --primary is used
+	IsFlatMergeWithPrimary     bool // Set when --flatMerge --primary is used
+}
+
+type config struct {
+	ctx      *context.Context
+	App      app    `yaml:"app"`
+	Output   output `yaml:"output"`
+	input    input
+	Assemble assemble `yaml:"assemble"`
+}
+
+var defaultConfig = config{
+	App: app{
+		Name:           "[REQUIRED]",
+		Version:        "[REQUIRED]",
+		Description:    "[OPTIONAL]",
+		PrimaryPurpose: "[REQUIRED]",
+		Purl:           "[OPTIONAL]",
+		CPE:            "[OPTIONAL]",
+		License: license{
+			Id: "[OPTIONAL]",
+		},
+		Supplier: supplier{
+			Name:  "[OPTIONAL]",
+			Email: "[OPTIONAL]",
+		},
+		Checksums: []checksum{
+			{Algorithm: "[OPTIONAL]", Value: "[OPTIONAL]"},
+		},
+		Author: []author{
+			{Name: "[OPTIONAL]", Email: "[OPTIONAL]"},
+		},
+		Copyright: "[OPTIONAL]",
+	},
+	Output: output{
+		Spec:        DEFAULT_OUTPUT_SPEC,
+		SpecVersion: DEFAULT_OUTPUT_SPEC_VERSION,
+		FileFormat:  DEFAULT_OUTPUT_FILE_FORMAT,
+	},
+	Assemble: assemble{
+		FlatMerge:                  false,
+		HierarchicalMerge:          true,
+		AssemblyMerge:              false,
+		IncludeComponents:          true,
+		IncludeDependencyGraph:     true,
+		includeDuplicateComponents: true,
+	},
+}
+
+// DefaultConfigYaml: Creates a yaml output of the default config.
+func DefaultConfigYaml() []byte {
+	yamlBytes, err := yaml.Marshal(&defaultConfig)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return yamlBytes
+}
+
+// NewConfig: Creating a new configuration instance with default values.
+func NewConfig() *config {
+	return &config{
+		Output: output{
+			Spec:        DEFAULT_OUTPUT_SPEC,
+			SpecVersion: DEFAULT_OUTPUT_SPEC_VERSION,
+			FileFormat:  DEFAULT_OUTPUT_FILE_FORMAT,
+		},
+		Assemble: assemble{
+			FlatMerge:                  false,
+			HierarchicalMerge:          true,
+			IncludeComponents:          true,
+			IncludeDependencyGraph:     true,
+			includeDuplicateComponents: true,
+		},
+	}
+}
+
+// Function to populate the config object
+func PopulateConfig(aParams *Params) (*config, error) {
+	if aParams.Ctx == nil {
+		return nil, errors.New("context is not initialized")
+	}
+	config := NewConfig()
+	if err := config.readAndMerge(aParams); err != nil {
+		return nil, err
+	}
+	if err := config.validate(); err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
+// readAndMerge: Merging user-specified parameters into the configuration.
+func (c *config) readAndMerge(p *Params) error {
+	if p.ConfigPath != "" {
+
+		yF, err := os.ReadFile(p.ConfigPath)
+		if err != nil {
+			return err
+		}
+
+		err = yaml.Unmarshal(yF, &c)
+		if err != nil {
+			return err
+		}
+	} else {
+
+		c.Assemble.FlatMerge = p.FlatMerge
+		c.Assemble.HierarchicalMerge = p.HierMerge
+		c.Assemble.AssemblyMerge = p.AssemblyMerge
+		c.Assemble.AugmentMerge = p.AugmentMerge
+		c.Assemble.PrimaryFile = p.PrimaryFile
+		c.Assemble.MergeMode = p.MergeMode
+		c.Assemble.DocLicense = p.DocLicense
+	}
+
+	c.input.files = p.Input
+	c.Output.file = p.Output
+	c.Output.Upload = p.Upload
+	c.Output.UploadProjectID = p.UploadProjectID
+	c.Output.Url = p.Url
+	c.Output.ApiKey = p.ApiKey
+	c.ctx = p.Ctx
+
+	// Set augment merge specific fields
+	if p.AugmentMerge {
+		c.Assemble.PrimaryFile = p.PrimaryFile
+		c.Assemble.MergeMode = p.MergeMode
+	}
+
+	// Set assembly merge with primary flag
+	if p.AssemblyMerge && p.PrimaryFile != "" {
+		c.Assemble.PrimaryFile = p.PrimaryFile
+		c.Assemble.IsAssemblyMergeWithPrimary = true
+	}
+
+	// Set flat merge with primary flag
+	if p.FlatMerge && p.PrimaryFile != "" {
+		c.Assemble.PrimaryFile = p.PrimaryFile
+		c.Assemble.IsFlatMergeWithPrimary = true
+	}
+	if c.ctx == nil {
+		return errors.New("config context is not initialized")
+	}
+
+	// override default config with params
+	if p.Name != "" {
+		c.App.Name = strings.Trim(p.Name, " ")
+	}
+
+	if p.Version != "" {
+		c.App.Version = strings.Trim(p.Version, " ")
+	}
+
+	if p.Type != "" {
+		c.App.PrimaryPurpose = strings.Trim(p.Type, " ")
+	}
+
+	if p.Xml {
+		c.Output.FileFormat = "xml"
+	}
+
+	if p.OutputSpec != "" {
+		c.Output.Spec = strings.Trim(p.OutputSpec, " ")
+	}
+
+	if p.OutputSpecVersion != "" {
+		c.Output.SpecVersion = strings.Trim(p.OutputSpecVersion, " ")
+	}
+
+	if p.DocLicense != "" {
+		c.Assemble.DocLicense = strings.Trim(p.DocLicense, " ")
+	}
+
+	return nil
+}
+
+// Validation: Ensuring the configuration is valid before proceeding.
+func (c *config) validate() error {
+	if c == nil {
+		return fmt.Errorf("config is not set")
+	}
+
+	log := logger.FromContext(*c.ctx)
+	if log == nil {
+		return errors.New("logger is not initialized")
+	}
+
+	validValue := func(v string) bool {
+		vl := strings.ToLower(v)
+		if vl == "" || vl == "[required]" {
+			return false
+		}
+		return true
+	}
+
+	sanitize := func(v string) string {
+		if strings.ToLower(v) == "[optional]" {
+			return ""
+		}
+
+		return strings.Trim(v, " ")
+	}
+
+	// Skip app name/version validation for augment merge, assembly merge with primary, or flat merge with primary
+	if !c.Assemble.AugmentMerge && !c.Assemble.IsAssemblyMergeWithPrimary && !c.Assemble.IsFlatMergeWithPrimary {
+		if !validValue(c.App.Name) {
+			return fmt.Errorf("app name is not set")
+		}
+		c.App.Name = sanitize(c.App.Name)
+
+		if !validValue(c.App.Version) {
+			return fmt.Errorf("app version is not set")
+		}
+		c.App.Version = sanitize(c.App.Version)
+	} else if c.Assemble.AugmentMerge {
+		// For augment merge, validate specific requirements
+		if c.Assemble.PrimaryFile == "" {
+			return fmt.Errorf("primary SBOM file is required for augment merge")
+		}
+
+		// Validate merge mode
+		validModes := []string{"if-missing-or-empty", "overwrite"}
+		if c.Assemble.MergeMode == "" {
+			c.Assemble.MergeMode = "if-missing-or-empty" // Default
+		} else {
+			found := false
+			for _, m := range validModes {
+				if c.Assemble.MergeMode == m {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("invalid merge mode '%s', must be one of: if-missing-or-empty, overwrite", c.Assemble.MergeMode)
+			}
+		}
+	}
+
+	c.App.PrimaryPurpose = sanitize(c.App.PrimaryPurpose)
+	c.App.Description = sanitize(c.App.Description)
+	c.App.License.Id = sanitize(c.App.License.Id)
+	c.App.Supplier.Name = sanitize(c.App.Supplier.Name)
+	c.App.Supplier.Email = sanitize(c.App.Supplier.Email)
+	c.App.Purl = sanitize(c.App.Purl)
+	c.App.CPE = sanitize(c.App.CPE)
+	c.App.Copyright = sanitize(c.App.Copyright)
+	c.Output.Spec = sanitize(c.Output.Spec)
+	c.Output.SpecVersion = sanitize(c.Output.SpecVersion)
+	c.Output.FileFormat = sanitize(c.Output.FileFormat)
+
+	for i := range c.App.Author {
+		c.App.Author[i].Name = sanitize(c.App.Author[i].Name)
+		c.App.Author[i].Email = sanitize(c.App.Author[i].Email)
+	}
+
+	for i := range c.App.Checksums {
+		sAlgo := sanitize(c.App.Checksums[i].Algorithm)
+		sValue := sanitize(c.App.Checksums[i].Value)
+
+		if sAlgo == "" && sValue == "" {
+			c.App.Checksums[i].Algorithm = sAlgo
+			c.App.Checksums[i].Value = sValue
+			continue
+		}
+
+		ok := cdx.IsSupportedChecksum(sAlgo, sValue)
+		if ok {
+			c.App.Checksums[i].Algorithm = strings.ToUpper(sAlgo)
+			c.App.Checksums[i].Value = sValue
+		} else {
+			return fmt.Errorf("unsupported hash algorithm %s or value %x :: use one of these %+v", sAlgo, sValue, cdx.SupportedChecksums())
+		}
+	}
+
+	if c.Output.Spec == "" && c.Output.SpecVersion == "" {
+		c.Output.Spec = ""
+		c.Output.SpecVersion = ""
+	}
+
+	if c.Output.FileFormat == "" {
+		c.Output.FileFormat = DEFAULT_OUTPUT_FILE_FORMAT
+	}
+
+	if len(c.input.files) == 0 {
+		return fmt.Errorf("input files are not set")
+	}
+
+	// For augment merge, we need at least one secondary SBOM in addition to primary
+	if c.Assemble.AugmentMerge {
+		if len(c.input.files) < 1 {
+			return fmt.Errorf("augment merge requires at least one secondary sbom file")
+		}
+	} else if c.Assemble.IsAssemblyMergeWithPrimary || c.Assemble.IsFlatMergeWithPrimary {
+		// For assembly merge with primary, primary is specified via --primary flag
+		// Input args are only secondary SBOMs
+		if c.Assemble.PrimaryFile == "" {
+			return fmt.Errorf("primary file is required for assembly/flat merge with --primary")
+		}
+		if len(c.input.files) < 1 {
+			return fmt.Errorf("assembly/flat merge with --primary requires at least one secondary SBOM")
+		}
+	} else if len(c.input.files) <= 1 {
+		return fmt.Errorf("assembly requires more than one sbom file")
+	}
+
+	err := c.validateInputContent()
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("config %+v", c)
+
+	return nil
+}
+
+func (c *config) validateInputContent() error {
+	log := logger.FromContext(*c.ctx)
+	sha256 := func(path string) string {
+		f, err := os.Open(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			log.Fatal(err)
+		}
+		return string(h.Sum(nil))
+	}
+
+	sums := []string{}
+
+	for _, v := range c.input.files {
+		sum := sha256(v)
+		log.Debugf("sha256 %s : %x", v, sum)
+		sums = append(sums, sum)
+	}
+
+	uniqSums := lo.Uniq(sums)
+
+	if len(sums) != len(uniqSums) {
+		return fmt.Errorf("input sboms contain duplicate content %+v", c.input.files)
+	}
+
+	return nil
+}

@@ -1,0 +1,61 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries and coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+*.prof
+
+# Build output
+build/
+dist/
+bin/
+_manifest/
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Version and release files
+version.txt
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+*.log
+tmp/
+temp/
+
+# AI assistant directories
+.claude/
+.agents/data/
+
+# Test fixtures and samples (if generated)
+testdata/output/
+samples/generated/
+
+# Environment and secrets
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+
+# Downloaded tools
+sbom-tool

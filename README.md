@@ -1,0 +1,830 @@
+# `sbomasm`: The Complete SBOM Management Toolkit
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/interlynk-io/sbomasm.svg)](https://pkg.go.dev/github.com/interlynk-io/sbomasm)
+[![Go Report Card](https://goreportcard.com/badge/github.com/interlynk-io/sbomasm)](https://goreportcard.com/report/github.com/interlynk-io/sbomasm)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/interlynk-io/sbomasm/badge)](https://securityscorecards.dev/viewer/?uri=github.com/interlynk-io/sbomasm)
+![GitHub all releases](https://img.shields.io/github/downloads/interlynk-io/sbomasm/total)
+
+`sbomasm` is a comprehensive toolkit for managing Software Bill of Materials (SBOMs) throughout their lifecycle. From assembling multiple SBOMs into unified documents, to editing metadata for compliance, removing sensitive information, enriching with additional context and cryptorgaphically sign and verify SBOMs - sbomasm handles it all.
+
+## Interlynk Free Tier — Full SBOM Compliance, Zero Friction
+
+Get started with SBOM compliance in under two minutes — no credit card, no time limit. Interlynk's free plan includes a guided setup where you pick your compliance standard (CRA/EU, FDA Cybersecurity, NTIA, or Telecom), upload your SBOM, and instantly see your compliance score with actionable gaps highlighted. You get compliance scoring against one standard, up to 5 products with 5 versions each, unlimited users, built-in vulnerability detection, API access for CI/CD integration, weekly compliance digests, and ShareLynk — a public link to share your compliance posture with customers and partners. Everything beyond the free tier is visible with a clear upgrade path, and you can start a 15-day Enterprise trial anytime to unlock unlimited products, SBOM automation, RBAC, analytics, license management, and workflow integrations. [**Get Started Free →**](https://app.interlynk.io)
+
+📊 **Check your SBOM compliance instantly** directly from your browser in just one click: <https://demo.interlynk.io/>
+
+## Quick Start
+
+```bash
+# Install sbomasm
+go install github.com/interlynk-io/sbomasm/v2@latest
+
+# Assemble multiple SBOMs into one
+sbomasm assemble -n "my-app" -v "1.0.0" -o final.json service1.json service2.json service3.json
+
+# Augment existing SBOM with additional data
+sbomasm assemble --augmentMerge --primary base.json scan-results.json -o enhanced.json
+
+# Assembly merge with primary (nest SBOMs without creating new root)
+sbomasm assemble --assemblyMerge --primary container.json app.json -o merged.json
+
+# Edit SBOM metadata for compliance
+sbomasm edit --subject document --supplier "ACME Corp (acme.com)" --timestamp sbom.json
+
+# Remove sensitive information
+sbomasm rm --subject component-data --search "internal-tool" sbom.json
+
+# Enrich SBOM with missing license information
+sbomasm enrich --fields license -o enriched.json sbom.json
+
+# View SBOM in human-readable format
+sbomasm view sbom.cdx.json
+
+# Generate assembly configuration
+sbomasm generate > config.yml
+
+# Sign an SBOM using ShiftLeftCyber's SecureSBOM API (using a sample key)
+sbomasm sign --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --output sbom-signed.json sbom.json
+
+# Sign and verify an SPDX SBOM using a detached signature response file
+sbomasm sign --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --output sbom.spdx.signed.json sbom.spdx.json
+sbomasm verify --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --signature sbom.spdx.signed.json sbom.spdx.json
+```
+
+## Table of Contents
+
+- [`sbomasm`: The Complete SBOM Management Toolkit](#sbomasm-the-complete-sbom-management-toolkit)
+  - [Interlynk Free Tier — Full SBOM Compliance, Zero Friction](#interlynk-free-tier--full-sbom-compliance-zero-friction)
+  - [Quick Start](#quick-start)
+  - [Table of Contents](#table-of-contents)
+  - [Community Recognition](#community-recognition)
+    - [Industry Adoption \& Standards](#industry-adoption--standards)
+    - [Community Feedback](#community-feedback)
+    - [Tool Ecosystem Integration](#tool-ecosystem-integration)
+  - [Why sbomasm?](#why-sbomasm)
+  - [Core Features](#core-features)
+  - [sbomasm Blog](#sbomasm-blog)
+  - [Basic Usage](#basic-usage)
+    - [Assembling SBOMs](#assembling-sboms)
+      - [Simple Assembly](#simple-assembly)
+      - [Container and Application Assembly](#container-and-application-assembly)
+      - [SPDX 3.0 JSON-LD Assembly](#spdx-30-json-ld-assembly)
+      - [Document License](#document-license)
+      - [Augment Merge (Enrich Existing SBOM)](#augment-merge-enrich-existing-sbom)
+      - [Assembly Merge with Primary (Nest SBOMs)](#assembly-merge-with-primary-nest-sboms)
+      - [Flat Merge with Primary (Combine with Preserved Identity)](#flat-merge-with-primary-combine-with-preserved-identity)
+    - [Editing SBOMs](#editing-sboms)
+      - [Add Missing Supplier Information](#add-missing-supplier-information)
+      - [Update Component Licenses](#update-component-licenses)
+      - [SPDX 3.0 JSON-LD Editing](#spdx-30-json-ld-editing)
+    - [Removing Components](#removing-components)
+      - [SPDX 3.0 JSON-LD Removal](#spdx-30-json-ld-removal)
+    - [Enriching SBOMs](#enriching-sboms)
+      - [Basic License Enrichment](#basic-license-enrichment)
+      - [SPDX 3.0 JSON-LD Enrichment](#spdx-30-json-ld-enrichment)
+      - [Advanced Enrichment Options](#advanced-enrichment-options)
+    - [Viewing SBOMs](#viewing-sboms)
+      - [Basic SBOM Visualization](#basic-sbom-visualization)
+    - [Signing and Verifying](#signing-and-verifying)
+  - [Industry Use Cases](#industry-use-cases)
+    - [Microservices \& Kubernetes](#microservices--kubernetes)
+    - [Automotive Industry](#automotive-industry)
+    - [Healthcare \& Medical Devices](#healthcare--medical-devices)
+    - [Financial Services](#financial-services)
+  - [Advanced Features](#advanced-features)
+    - [Configuration-Driven Assembly](#configuration-driven-assembly)
+    - [Dependency Track Integration](#dependency-track-integration)
+    - [Batch Operations](#batch-operations)
+  - [Command Reference](#command-reference)
+  - [Installation](#installation)
+    - [Using Go install (Recommended)](#using-go-install-recommended)
+    - [Using Homebrew](#using-homebrew)
+    - [Using Docker](#using-docker)
+    - [Using Prebuilt Binaries](#using-prebuilt-binaries)
+    - [Building from Source](#building-from-source)
+  - [Contributions](#contributions)
+  - [Other SBOM Open Source tools](#other-sbom-open-source-tools)
+  - [Contact](#contact)
+  - [Stargazers](#stargazers)
+
+## Community Recognition
+
+`sbomasm` has gained recognition across the SBOM ecosystem for its innovative approach to SBOM management:
+
+### Industry Adoption & Standards
+
+> **OpenChain Telco SBOM Guide v1.1** (2025) references sbomasm as a recommended tool for telco operators managing complex software supply chains, particularly for its ability to merge and validate SBOMs across multiple vendors and formats.
+
+> **SBOM Generation White Paper** (SBOM Community, February 2025) highlights sbomasm as an exemplary tool that "demonstrates best practices in SBOM assembly, particularly its format-agnostic approach and preservation of component relationships during merging operations."
+
+### Community Feedback
+
+> “I found several bugs, mostly invalid SPDX, but they were **quickly fixed**. The team is **very reactive**. The tool now produces **valid SPDX for all examples I have tested**...”
+>
+> — Marc-Étienne Vargenau (Nokia), [SPDX Implementers Mailing List](https://lists.spdx.org/g/spdx-implementers/topic/sbomasm_a_tool_to_merge_spdx/107185371)
+
+> "The hierarchical merge capability in sbomasm is exactly what we needed for assembling microservice SBOMs while preserving their dependency relationships. It's become an essential part of our DevSecOps pipeline."  
+> — **Fortune 500 Financial Services CISO**
+
+> "For medical device manufacturers needing FDA-compliant SBOMs, sbomasm's edit functionality has been a game-changer. We can now ensure all required metadata is present before submission."  
+> — **Medical Device Manufacturer, Regulatory Affairs**
+
+### Tool Ecosystem Integration
+
+- **GitLab/GitHub CI**: Widely adopted in CI/CD pipelines for automated SBOM assembly
+
+## Why sbomasm?
+
+Modern software development involves complex supply chains with multiple components, each potentially having its own SBOM. Organizations face several challenges:
+
+- **Multiple Sources**: Microservices, containers, and third-party components each generate separate SBOMs
+- **Compliance Requirements**: Regulations like FDA medical device requirements, Auto-ISAC standards, and CISA guidelines require complete and accurate SBOMs
+- **Metadata Gaps**: Generated SBOMs often lack critical metadata like supplier information, licenses, or proper versioning
+- **Sensitive Data**: SBOMs may contain internal component names or proprietary information that shouldn't be shared
+- **Format Fragmentation**: Different tools produce different SBOM formats (SPDX vs CycloneDX)
+
+`sbomasm` solves these challenges with a unified toolkit that works across formats and use cases.
+
+## Core Features
+
+- 🔀 **Assemble**: Merge multiple SBOMs into comprehensive documents
+- ✏️ **Edit**: Add or modify metadata for compliance and completeness
+- 🗑️ **Remove**: Strip sensitive components or fields (SPDX 2.3, SPDX 3.0 JSON-LD, CycloneDX)
+- 🚀 **Enrich**: Augment SBOMs with missing license information from ClearlyDefined (SPDX 2.3, SPDX 3.0 JSON-LD, CycloneDX)
+- 👁️ **View**: Visualize SBOMs in human-readable hierarchical format (SPDX 2.3, SPDX 3.0 JSON-LD, CycloneDX)
+- 🔐 **Sign**: Cryptographically Sign & Verify SBOMs (uses 3rd party service from ShiftLeftCyber)
+- 📋 **Format Agnostic**: Supports SPDX 2.3, SPDX 3.0 JSON-LD, and CycloneDX
+- ⚡ **Blazing Fast**: Optimized for large-scale operations
+- 🔧 **Flexible**: CLI, configuration files, and API integration options
+
+## sbomasm Blog
+
+- [Lean, Clean, and Compliance-Ready: sbomasm’s New Removal Capabilities](https://www.linkedin.com/pulse/lean-clean-compliance-ready-sbomasms-new-removal-vivek-kumar-sahu-a2fqe/)
+- [sbomasm enriches licenses using ClearlyDefined datasets](https://www.linkedin.com/pulse/sbomasm-enriches-licenses-using-clearlydefined-datasets-sahu-dogec/)
+
+## Basic Usage
+
+### Assembling SBOMs
+
+The most common use case is combining multiple SBOMs from different sources into a single comprehensive document.
+
+#### Simple Assembly
+
+Combine microservice SBOMs into an application SBOM:
+
+```bash
+# Basic assembly with automatic format detection
+sbomasm assemble \
+  -n "e-commerce-platform" \
+  -v "2.1.0" \
+  -t "application" \
+  -o platform.cdx.json \
+  auth-service.json cart-service.json payment-service.json
+```
+
+#### Container and Application Assembly
+
+Merge container base image SBOM with application dependencies:
+
+```bash
+# Combine base image SBOM with application SBOM
+sbomasm assemble \
+  -n "containerized-app" \
+  -v "1.0.0" \
+  --type "container" \
+  -o final-container.spdx.json \
+  alpine-base.spdx.json app-deps.spdx.json
+```
+
+#### SPDX 3.0 JSON-LD Assembly
+
+sbomasm supports SPDX 3.0 JSON-LD format with flat `@graph` structure. All merge strategies work with SPDX 3.0:
+
+```bash
+# Flat merge SPDX 3.0 SBOMs (default mode)
+sbomasm assemble \
+  -n "my-app" -v "1.0.0" -t "application" \
+  frontend.spdx3.json backend.spdx3.json \
+  -o merged.spdx3.json
+
+# Assembly merge with primary (nest secondary SBOMs into primary)
+sbomasm assemble --assemblyMerge \
+  --primary container.spdx3.json \
+  app1.spdx3.json app2.spdx3.json \
+  -o complete.spdx3.json
+
+# Augment merge (enrich primary with secondary fields)
+sbomasm assemble --augmentMerge \
+  --primary base.spdx3.json \
+  scan-results.spdx3.json \
+  -o enriched.spdx3.json
+
+# Flat merge with primary (preserve primary as root)
+sbomasm assemble --flatMerge \
+  --primary primary.spdx3.json \
+  secondary.spdx3.json \
+  -o combined.spdx3.json
+```
+
+#### Document License
+
+Control the license of the assembled SBOM (default: CC0-1.0):
+
+```bash
+# Use default CC0-1.0 license
+sbomasm assemble -n "my-app" -v "1.0.0" -t "application" samples/test/assemble/lite-sbom1-cdx.json samples/test/assemble/lite-sbom2-cdx.json -o output-default-license.json
+
+# Specify a custom license
+sbomasm assemble -n "my-app" -v "1.0.0" -t "application" --doc-license "Apache-2.0" samples/test/assemble/lite-sbom1-cdx.json samples/test/assemble/lite-sbom2-cdx.json -o output-custom-license.json
+
+# Omit license entirely
+sbomasm assemble -n "my-app" -v "1.0.0" -t "application" --doc-license "none" samples/test/assemble/lite-sbom1-cdx.json samples/test/assemble/lite-sbom2-cdx.jsonn -o output-no-license.json
+```
+
+#### Augment Merge (Enrich Existing SBOM)
+
+Enhance an existing primary SBOM with additional component information from secondary SBOMs without creating a new root component:
+
+```bash
+# Enrich base SBOM with additional scan results
+sbomasm assemble --augmentMerge \
+  --primary base-sbom.json \
+  vulnerability-scan.json license-scan.json \
+  -o enriched-sbom.json
+
+# Overwrite existing component data with vendor-provided information
+sbomasm assemble --augmentMerge \
+  --primary internal-sbom.json \
+  --merge-mode overwrite \
+  vendor-sbom.json \
+  -o updated-sbom.json
+```
+
+#### Assembly Merge with Primary (Nest SBOMs)
+
+Merge SBOMs into an existing primary SBOM without creating a new synthetic root. Secondary SBOMs' primaries become sub-components (assemblies) of the primary:
+
+```bash
+# Python wheel shipping JavaScript - nest JS SBOM inside Python primary
+sbomasm assemble --assemblyMerge \
+  --primary python-wheel.cdx.json \
+  javascript-bundle.cdx.json \
+  -o merged.cdx.json
+
+# Container with bundled applications
+sbomasm assemble --assemblyMerge \
+  --primary container.cdx.json \
+  app1.cdx.json app2.cdx.json \
+  -o complete.cdx.json
+```
+
+**Use cases:**
+
+- Python wheels shipping JavaScript bundles
+- Container images with bundled applications
+- Any scenario where one SBOM should contain others as sub-components
+- Preserves primary SBOM's identity (serial number, supplier, licenses, authors) while adding secondary assemblies
+- Updates timestamp to reflect modification time
+
+The secondary primaries become:
+
+1. Sub-components in `metadata.component.components` (assembly relationship)
+2. Direct dependencies of the primary component (dependency relationship)
+
+#### Flat Merge with Primary (Combine with Preserved Identity)
+
+Merge SBOMs while preserving an existing primary SBOM as the document root in a flat structure. All components (including secondary primaries) are placed directly in the `components` section:
+
+```bash
+# Python wheel with dependencies - preserve Python primary as root
+sbomasm assemble --flatMerge \
+  --primary python-wheel.cdx.json \
+  dependency1.cdx.json dependency2.cdx.json \
+  -o combined.cdx.json
+
+# Merge multiple SBOMs preserving the base SBOM's identity
+sbomasm assemble --flatMerge \
+  --primary base.cdx.json \
+  component-a.cdx.json component-b.cdx.json \
+  -o merged.cdx.json
+```
+
+### Editing SBOMs
+
+Fix missing metadata or update information for compliance:
+
+#### Add Missing Supplier Information
+
+```bash
+# Add supplier info required by procurement
+sbomasm edit \
+  --missing \
+  --subject document \
+  --supplier "Interlynk (hello@interlynk.io)" \
+  --output compliant.json \
+  original.json
+```
+
+#### Update Component Licenses
+
+```bash
+# Fix missing license information
+sbomasm edit \
+  --subject component-name-version \
+  --search "log4j (2.17.1)" \
+  --license "Apache-2.0 (https://www.apache.org/licenses/LICENSE-2.0)" \
+  input.json
+```
+
+#### SPDX 3.0 JSON-LD Editing
+
+```bash
+# Add document metadata to an SPDX 3.0 SBOM (creates Person/Organization elements)
+sbomasm edit \
+  --subject document \
+  --author "Security Team (security@example.com)" \
+  --tool "sbomasm (v0.1.0)" \
+  --timestamp \
+  input.spdx3.json -o enriched.spdx3.json
+
+# Add component identifiers (stored as externalIdentifier + verifiedUsing)
+sbomasm edit \
+  --subject primary-component \
+  --purl "pkg:golang/github.com/example/app@v1.0.0" \
+  --hash "SHA256 (e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)" \
+  enriched.spdx3.json -o final.spdx3.json
+```
+
+### Removing Components
+
+Remove fields, components, or dependencies from SBOMs before sharing:
+
+```bash
+# Remove all authors from document metadata
+sbomasm rm --field author --scope document input.spdx.json -o output.spdx.json
+
+# Remove a specific field from a single component
+sbomasm rm --field purl --scope component --name "nginx" --version "v1.21.0" input.spdx.json -o output.spdx.json
+
+# Remove a field from all components
+sbomasm rm --field hash --scope component -a input.cdx.json -o output.cdx.json
+
+# Remove all components that have a specific field
+sbomasm rm --components --field license input.spdx.json -o output.spdx.json
+
+# Remove components where a field matches a specific value
+sbomasm rm --components --field supplier --value "Internal Team" input.cdx.json -o output.cdx.json
+```
+
+#### SPDX 3.0 JSON-LD Removal
+
+SPDX 3.0 uses an `@graph` flat element model. Component removal automatically cleans up orphaned elements (Person, Organization, Tool, License, Relationship) and dangling `rootElement` references.
+
+```bash
+# Remove all components with a specific license
+sbomasm rm --components --field license --value "Apache-2.0" input.spdx3.json -o output.spdx3.json
+
+# Remove a field from all components
+sbomasm rm --field hash --scope component -a input.spdx3.json -o output.spdx3.json
+
+# Remove all components that have a supplier
+sbomasm rm --components --field supplier input.spdx3.json -o output.spdx3.json
+```
+
+### Enriching SBOMs
+
+Enhance SBOMs with missing license information using ClearlyDefined data:
+
+#### Basic License Enrichment
+
+```bash
+# Enrich SBOM with missing license information
+sbomasm enrich \
+  --fields license \
+  --output enriched.json \
+  original.json
+```
+
+#### SPDX 3.0 JSON-LD Enrichment
+
+SPDX 3.0 stores licenses as standalone elements linked via `hasConcludedLicense` relationships. The enrich command handles this automatically:
+
+```bash
+# Enrich SPDX 3.0 SBOM — adds SimpleLicensingText elements + relationships
+sbomasm enrich \
+  --fields license \
+  --output enriched.spdx3.json \
+  samples/test/enrich/dropwizard-missing-all-license.spdx3.json
+
+# Force update existing licenses (replaces hasConcludedLicense relationships)
+sbomasm enrich \
+  --fields license \
+  --force \
+  --output enriched-force.spdx3.json \
+  samples/test/enrich/dropwizard-some-license-present.spdx3.json
+```
+
+#### Advanced Enrichment Options
+
+```bash
+# Force update existing licenses with more complete data
+sbomasm enrich \
+  --fields license \
+  --force \
+  --license-exp-join "AND" \
+  --max-retries 3 \
+  --max-wait 10 \
+  --output complete.json \
+  incomplete.json
+```
+
+This command is particularly useful for:
+- Filling gaps in automatically generated SBOMs that lack license information
+- Ensuring compliance with procurement and legal requirements
+- Standardizing license expressions across components
+- Meeting regulatory requirements that mandate complete license documentation
+
+### Viewing SBOMs
+
+Visualize CycloneDX SBOMs in a human-readable hierarchical format with comprehensive component information:
+
+#### Basic SBOM Visualization
+
+```bash
+# View SBOM with default settings
+sbomasm view sbom.cdx.json
+
+# Detailed view with all information
+sbomasm view sbom.cdx.json --verbose
+
+# Save output to file
+sbomasm view sbom.cdx.json -o sbom-report.txt
+
+# License-only view (minimal component details)
+sbomasm view sbom.cdx.json --only-licenses
+
+# View containers and operating systems
+sbomasm view sbom.cdx.json --filter-type "container,operating-system"
+
+# Focus on high-severity vulnerabilities
+sbomasm view sbom.cdx.json --min-severity high --only-unresolved
+
+# Limit tree depth for large SBOMs
+sbomasm view sbom.cdx.json --max-depth 3
+
+# Flat list format
+sbomasm view sbom.cdx.json --format flat
+
+# JSON export for processing
+sbomasm view sbom.cdx.json --format json -o analysis.json
+```
+
+The view command is particularly useful for:
+
+- **Security Audits**: Identify and filter vulnerabilities by severity
+- **Dependency Analysis**: Understand component relationships and dependencies
+- **License Compliance**: Extract license information for compliance review
+- **SBOM Validation**: Verify SBOM completeness and structure
+- **Documentation**: Generate human-readable reports for stakeholders
+
+### Signing and Verifying
+
+SBOMs are intended to be shared. Unsigned SBOMs are like unsealed envelopes. Anyone can open it up and alter what is
+inside. Cryptographically signing your SBOM allows SBOM producers to **prove authenticity and establish trust**
+and SBOM consumers to have the confidence that the SBOM has not been tampered with and comes from a verified source.
+
+Signing and Verifying SBOMs using sbomasm uses the SecureSBOM API from ShiftLeftCyber. This service requires an
+API Key. To obtain an API key use the following: [ContactUs](https://shiftleftcyber.io/contactus/)
+
+**Prerequisites**
+
+1. **API Key:** Obtain an API Key from ShiftLeftCyber
+2. **Key Management:** Generate or use existing signing keys through the SecureSBOM Service
+3. **Environment Setup:** Set your API key as an environment variable for convenience
+
+```bash
+export SECURE_SBOM_API_KEY="your-api-key-here"
+```
+
+```bash
+# Generate a Signing Key for signing and online verification
+sbomasm securesbomkey generate
+
+# Use the generated key to sign a CycloneDX SBOM according to the CycloneDX signature format.
+# The examples below use a fake/sample key for educational purposes only.
+sbomasm sign --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --output sbom.cdx.signed.json sbom.json
+
+# Verify the CycloneDX signed response using the API
+sbomasm verify --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e sbom.cdx.signed.json
+
+# Sign and verify a CycloneDX SBOM with a detached signature response file
+sbomasm sign --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --detached --output sbom.cdx.detached.json sbom.cdx.json
+sbomasm verify --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --signature sbom.cdx.detached.json sbom.cdx.json
+
+# Sign and verify an SPDX SBOM with a detached signature response file
+sbomasm sign --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --output sbom.spdx.signed.json sbom.spdx.json
+sbomasm verify --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --signature sbom.spdx.signed.json sbom.spdx.json
+
+# SPDX verification also accepts a raw base64 signature
+sbomasm verify --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --signature "MEUCIQD..." sbom.spdx.json
+
+# Or an inline JSON signing response payload
+sbomasm verify --key-id a7b3c9e1-2f4d-4a8b-9c6e-1d5f7a9b2c4e --signature '{"algorithm":"ES256","detached":true,"sbom_type":"spdx","signature_b64":"MEUCIQD..."}' sbom.spdx.json
+```
+
+## Industry Use Cases
+
+### Microservices & Kubernetes
+
+Modern cloud-native applications consist of dozens of microservices, each with their own dependencies. Organizations using Kubernetes need to track components across:
+
+- Application code dependencies
+- Container base images
+- Kubernetes operators and controllers
+- Service mesh components
+
+**Example**: A fintech company running 50+ microservices on Kubernetes:
+
+```bash
+# Step 1: Collect SBOMs from CI/CD pipeline
+# Each build generates an SBOM for the service
+
+# Step 2: Assemble daily platform SBOM
+sbomasm assemble \
+  -n "trading-platform" \
+  -v "$(date +%Y.%m.%d)" \
+  -t "application" \
+  --flat-merge \
+  -o daily-platform-sbom.json \
+  services/*.json
+
+# Step 3: Add compliance metadata
+sbomasm edit \
+  --subject document \
+  --supplier "FinTech Corp (fintech.com)" \
+  --tool "sbomasm (v0.1.0)" \
+  --timestamp \
+  daily-platform-sbom.json
+
+# Step 4: Remove internal debugging tools
+sbomasm rm --components --field supplier --value "Internal Team" daily-platform-sbom.json
+```
+
+### Automotive Industry
+
+Automotive manufacturers must comply with Auto-ISAC guidelines and track software across complex supply chains involving hundreds of suppliers.
+
+**Example**: An electric vehicle manufacturer tracking infotainment system components:
+
+```bash
+# Assemble SBOMs from tier-1 suppliers
+sbomasm assemble \
+  -n "infotainment-system" \
+  -v "model-y-2025" \
+  -t "firmware" \
+  -o infotainment-complete.spdx.json \
+  navigation-vendor.spdx audio-vendor.spdx connectivity-vendor.spdx
+
+# Add automotive-specific metadata
+sbomasm edit \
+  --subject primary-component \
+  --cpe "cpe:2.3:a:automaker:infotainment:2025.1:*:*:*:*:*:*:*" \
+  --lifecycle "manufacture" \
+  --output auto-compliant.spdx.json \
+  infotainment-complete.spdx.json
+```
+
+### Healthcare & Medical Devices
+
+FDA regulations require medical device manufacturers to provide comprehensive SBOMs. These must include all software components and their security status.
+
+**Example**: Medical imaging device SBOM preparation:
+
+```bash
+# Create configuration for FDA submission
+cat > fda-config.yml << EOF
+app:
+  name: 'MRI-Scanner-Software'
+  version: 'v3.2.0'
+  description: 'MRI Scanner Control System - FDA Submission'
+  type: 'device'
+  supplier:
+    name: 'MedTech Inc'
+    email: 'regulatory@medtech.com'
+  author:
+  - name: 'MedTech Regulatory Team'
+    email: 'regulatory@medtech.com'
+output:
+  spec: spdx
+  file_format: json
+assemble:
+  hierarchical_merge: true
+  include_components: true
+  include_dependency_graph: true
+EOF
+
+# Assemble with configuration
+sbomasm assemble -c fda-config.yml -o fda-submission.json \
+  imaging-software.json hardware-drivers.json third-party-libs.json
+```
+
+### Financial Services
+
+Financial institutions need SBOMs for risk assessment and regulatory compliance (PCI-DSS 4.0).
+
+**Example**: Banking application quarterly compliance report:
+
+```bash
+# Assemble quarterly SBOM from all banking services
+sbomasm assemble \
+  -n "digital-banking-platform" \
+  -v "2024-Q4" \
+  -o quarterly-sbom.cdx.json \
+  core-banking/*.json mobile-app/*.json web-portal/*.json
+
+# Enrich with security metadata
+sbomasm edit \
+  --subject document \
+  --tool "dependency-track (4.11.0)" \
+  --author "Security Team (security@bank.com)" \
+  --lifecycle "operations" \
+  quarterly-sbom.cdx.json
+
+# Generate security audit report
+sbomasm view quarterly-sbom.cdx.json \
+  --min-severity high \
+  --only-unresolved \
+  --vulnerabilities \
+  -o quarterly-security-report.txt
+```
+
+## Advanced Features
+
+### Configuration-Driven Assembly
+
+For complex assembly operations, use configuration files:
+
+```yaml
+# assembly-config.yml
+app:
+  name: 'enterprise-platform'
+  version: 'v2.0.0'
+  type: 'application'
+  supplier:
+    name: 'Enterprise Corp'
+    email: 'sbom@enterprise.com'
+  licenses:
+  - id: 'Apache-2.0'
+output:
+  spec: cyclonedx
+  file_format: json
+  file: 'enterprise-platform.cdx.json'
+assemble:
+  flat_merge: true
+  include_components: true
+  include_dependency_graph: false
+```
+
+```bash
+sbomasm assemble -c assembly-config.yml services/*.json
+```
+
+### Dependency Track Integration
+
+Integrate with Dependency Track for continuous SBOM monitoring:
+
+```bash
+# Pull SBOMs from Dependency Track, assemble, and push back
+sbomasm assemble dt \
+  -u "https://dtrack.company.com" \
+  -k "$DT_API_KEY" \
+  -n "aggregated-view" \
+  -v "latest" \
+  --flat-merge \
+  -o "project-uuid" \
+  project-uuid-1 project-uuid-2 project-uuid-3
+```
+
+### Batch Operations
+
+Process multiple SBOMs with shell scripting:
+
+```bash
+#!/bin/bash
+# batch-process.sh - Add supplier info to all SBOMs
+
+for sbom in sboms/*.json; do
+  echo "Processing $sbom..."
+  sbomasm edit \
+    --missing \
+    --subject document \
+    --supplier "ACME Corp (acme.com)" \
+    --timestamp \
+    --output "processed/$(basename $sbom)" \
+    "$sbom"
+done
+```
+
+## Command Reference
+
+Detailed documentation for each command:
+
+- [assemble](docs/assemble.md) - Merge multiple SBOMs
+- [edit](docs/edit.md) - Modify SBOM metadata
+- [rm](docs/remove.md) - Remove components or fields
+- [enrich](docs/enrich.md) - Enrich SBOMs with missing license information
+- [view](docs/view.md) - Visualize SBOMs in human-readable format
+- [generate](docs/generate.md) - Create configuration templates
+- [sign/verify](docs/securesbom.md) - Cryptographically Sign & Verify SBOMs
+
+## Installation
+
+### Using Go install (Recommended)
+
+```bash
+go install github.com/interlynk-io/sbomasm/v2@latest
+```
+
+### Using Homebrew
+
+```bash
+brew tap interlynk-io/interlynk
+brew install sbomasm
+```
+
+### Using Docker
+
+```bash
+docker run -v $(pwd):/app ghcr.io/interlynk-io/sbomasm:latest assemble \
+  -n "my-app" -v "1.0.0" -o /app/output.json /app/input1.json /app/input2.json
+```
+
+### Using Prebuilt Binaries
+
+Download from [releases page](https://github.com/interlynk-io/sbomasm/releases)
+
+### Building from Source
+
+```bash
+git clone https://github.com/interlynk-io/sbomasm.git
+cd sbomasm
+
+# Show all available make targets
+make help
+
+# Build for current platform
+make build
+
+# Run tests
+make test
+
+# Build for all platforms
+make build-all
+
+# Verify the build
+./build/sbomasm version
+```
+
+The project includes a comprehensive Makefile with targets for development, testing, building, and releasing. Run `make help` to see all available commands including:
+
+- **Development**: `make fmt`, `make vet`, `make lint`
+- **Testing**: `make test`, `make test-coverage`, `make test-short`
+- **Building**: `make build`, `make build-all`, `make install`
+- **Release**: `make snapshot`, `make release`
+- **CI/CD**: `make ci`, `make pre-commit`
+
+## Contributions
+
+We look forward to your contributions! Please follow these guidelines:
+
+1. Fork the repo
+2. Create your feature/bug branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -sam "Add amazing feature"`) - commits must be signed
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Create a Pull Request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+## Other SBOM Open Source tools
+
+- [SBOM Seamless Transfer](https://github.com/interlynk-io/sbommv) - A primary tool to transfer SBOMs between different systems
+- [SBOM Quality Score](https://github.com/interlynk-io/sbomqs) - A tool for evaluating the quality and compliance of SBOMs
+- [SBOM Search Tool](https://github.com/interlynk-io/sbomgr) - A tool for context-aware search in SBOM repositories
+- [SBOM Explorer](https://github.com/interlynk-io/sbomex) - A tool for discovering and downloading SBOMs from public repositories
+- [SBOM Benchmark](https://www.sbombenchmark.dev) - A repository of SBOMs and quality scores for popular containers and repositories
+
+## Contact
+
+We appreciate all feedback. The best ways to get in touch with us:
+
+- ❓& 🅰️ [Slack](https://join.slack.com/t/sbomqa/shared_invite/zt-2jzq1ttgy-4IGzOYBEtHwJdMyYj~BACA)
+- 📞 [Live Chat](https://www.interlynk.io/#hs-chat-open)
+- 📫 [Email Us](mailto:hello@interlynk.io)
+- 🐛 [Report a bug or enhancement](https://github.com/interlynk-io/sbomasm/issues)
+- 🐦 [Follow us on X](https://twitter.com/InterlynkIo)
+
+## Stargazers
+
+If you like this project, please support us by starring it.
+
+[![Stargazers](https://starchart.cc/interlynk-io/sbomasm.svg)](https://starchart.cc/interlynk-io/sbomasm)
