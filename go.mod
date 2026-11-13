@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/CycloneDX/cyclonedx-go v0.12.0
 	github.com/DependencyTrack/client-go v0.19.0
-	github.com/cheggaaa/pb/v3 v3.2.1
+	github.com/cheggaaa/pb/v3 v3.3.0
 	github.com/fatih/color v1.19.0
 	github.com/github/go-spdx/v2 v2.7.1
 	github.com/google/uuid v1.6.0
